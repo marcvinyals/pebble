@@ -43,15 +43,13 @@ extern void print_dot_PebbleConfiguration(const DAG *g, const PebbleConfiguratio
 size_t hashPebbleConfiguration(void *data) {
   assert(data);
   PebbleConfiguration *ptr=(PebbleConfiguration *)data;
-#if WHITE_PEBBLES && BLACK_PEBBLES  
+
+#if BLACK_WHITE_PEBBLING
   return  (size_t)(ptr->white_pebbled * 0x9e3779b9 + ptr->black_pebbled);
-#elif WHITE_PEBBLES
-  return  (size_t)(ptr->white_pebbled * 0x9e3779b9);
-#elif BLACK_PEBBLES
-  return  (size_t)(ptr->black_pebbled * 0x9e3779b9);
 #else
-  return 0;
+  return  (size_t)(ptr->black_pebbled * 0x9e3779b9);
 #endif
+
 }
 
 /*
@@ -71,11 +69,9 @@ Boolean  samePebbleConfiguration(void *A,void *B) {
   pA=(PebbleConfiguration*)A;
   pB=(PebbleConfiguration*)B;
 
-#if BLACK_PEBBLES
   if (pA->black_pebbled != pB->black_pebbled) return FALSE;
-#endif
 
-#if WHITE_PEBBLES
+#if BLACK_WHITE_PEBBLING
   if (pA->white_pebbled != pB->white_pebbled) return FALSE;
 #endif
 
@@ -157,14 +153,14 @@ Boolean CheckRuntimeConsistency(DAG *g,Dict *dict) {
 
 
 /**
-   Finalize a black-white persistent pebbling.
+   Finalize a black-white or reversible persistent pebbling.
 
    The breath-first-search  process we use  to find the  pebbling does
    not produce a  complete one, in particular a clean  up phase can be
    appended afterward.
 
    In  the  case of  persistent  pebbling,  we computed  the  pebbling
-   looking for a  transition from a configuration with  a single while
+   looking for a  transition from a configuration with  a single white
    pebble  on  the sink,  to  a  configuration containing  only  black
    pebbles.  It's dual configuration is indeed the persistent pebbling
    we are looking for, so we are going to reverse it.
@@ -186,12 +182,8 @@ Boolean CheckRuntimeConsistency(DAG *g,Dict *dict) {
 */
 Pebbling *finalize_persistent_pebbling(const DAG *graph,
                                        PebbleConfiguration *final) {
-#if REVERSIBLE
-  assert(0);
-#endif
   assert(graph);
   assert(final);
-  assert(isfinal(graph,final));
 
   PebbleConfiguration *ptr=NULL;
   Pebbling *solution=NULL;
@@ -207,19 +199,29 @@ Pebbling *finalize_persistent_pebbling(const DAG *graph,
     ptr=ptr->previous_configuration;
   }
   length -= 1; /* initial conf is not a step */
-  length += final->pebbles; /* clean up black pebbles */
 
+#if BLACK_WHITE_PEBBLING
+  /* there may be black pebbles left to clean up which translates into
+     white placement after reversing the pebbling.
+   */
+  length += final->pebbles;
+#endif 
+  
   /* solution to be filled */
   solution = new_Pebbling(length);
   solution->length = length;
   solution->cost   = cost;
 
-  /* Preamble phase: place some white pebbles */
+  
   i=0;
+#if BLACK_WHITE_PEBBLING
+  /* Preamble phase: place some white pebbles, which correspond to the
+     black pebbles cleaned at the end of the original pebbling. */
   for(Vertex v=0;v<graph->size;v++) {
     if (isblack(v,graph,final)) { solution->steps[i]=v; ++i; }
   }
-
+#endif
+  
   /* Reverse the actual pebbling */
   assert(i == final->pebbles);
   ptr = final;
@@ -238,8 +240,8 @@ Pebbling *finalize_persistent_pebbling(const DAG *graph,
 
 
 /**
-   Finalize the a black-white pebbling, by removing residual black
-   pebbles.
+   Finalize the a black or black-white pebbling, by removing residual
+   black pebbles.
 
    @param dag the graph we are pebbling
 
@@ -251,8 +253,8 @@ Pebbling *finalize_pebbling(const DAG *graph,
                                        PebbleConfiguration *final) {
   assert(graph);
   assert(final);
-  assert(isfinal(graph,final));
-#if REVERSIBLE
+
+#if REVERSIBLE_PEBBLING
   assert(0);
 #endif
 
@@ -313,8 +315,8 @@ Pebbling *finalize_reversible_pebbling(const DAG *graph,
                                        PebbleConfiguration *final) {
   assert(graph);
   assert(final);
-  assert(isfinal(graph,final));
-#if !REVERSIBLE
+
+#if !REVERSIBLE_PEBBLING
   assert(0);
 #endif
 
@@ -422,20 +424,20 @@ Pebbling *bfs_pebbling_strategy(DAG *g,
     fprintf(stderr,
             "Error in search procedure: the graph is too "
             "big for the optimized data structures.");
-    exit(-1);
+    exit(EXIT_FAILURE);
   }
 
   if (g->sink_number!=1) {
     fprintf(stderr,
             "Error in search procedure: the graph has more than "
             "one sink vertex.");
-    exit(-1);
+    exit(EXIT_FAILURE);
   }
 
   if (upper_bound < 1) { return NULL; } /* No pebbling with zero pebbles */
 
   
-#if (!WHITE_PEBBLES)
+#if (!BLACK_WHITE_PEBBLING && !REVERSIBLE_PEBBLING)
   persistent_pebbling = 0;
 #endif
   
@@ -459,8 +461,8 @@ Pebbling *bfs_pebbling_strategy(DAG *g,
   /* Initial configuration for the BFS */
   enqueue  (Q,initial);
   writeDict(D,&res,initial);
-#if WHITE_PEBBLES
-  if (persistent_pebbling) {  placewhite(g->sinks[0],g,initial); }
+#if BLACK_WHITE_PEBBLING || REVERSIBLE_PEBBLING
+  if (persistent_pebbling) {  init_persistent_pebbling(g, initial); }
 #endif
 
 
@@ -468,6 +470,13 @@ Pebbling *bfs_pebbling_strategy(DAG *g,
   PebbleConfiguration *nptr =NULL;    /* Configuration to be queued for later processing (maybe) */
   PebbleConfiguration *final=NULL;    /* final configuration */
 
+  Boolean (*isfinal)(const DAG *, const PebbleConfiguration *); /*pointer to final configuration tester.*/ 
+
+  if (persistent_pebbling)
+    isfinal = isfinal_persistent;
+  else 
+    isfinal = isfinal_visiting;
+  
   /* Consistency test of data structures */
   assert(isconsistentDict(D));
   assert(isconsistentSL(Q));
@@ -542,15 +551,17 @@ Pebbling *bfs_pebbling_strategy(DAG *g,
 epilogue:
   
   /* To get a formally correct pebbling we need to give final touch. */
-#if !REVERSIBLE
   if (persistent_pebbling) {
+
     solution = final ? finalize_persistent_pebbling(g,final) : NULL ;
+
   } else {
-    solution = final ? finalize_pebbling(g,final) : NULL ;
-  }
+#if REVERSIBLE_PEBBLING
+    solution = final ? finalize_reversible_pebbling(g,final) : NULL ;
 #else
-  solution = final ? finalize_reversible_pebbling(g,final) : NULL ;
+    solution = final ? finalize_pebbling(g,final) : NULL ;
 #endif
+  }
 
   
   STATS_REPORT(Stat,"\nFINAL REPORT (clk. %llu): upper bound=%u:\n\n",

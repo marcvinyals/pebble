@@ -57,6 +57,11 @@ c\n\
 5  : 2  4\n"
 
 
+#if BLACK_WHITE_PEBBLING && REVERSIBLE_PEBBLING
+#error "Invalid compiler options: black/white AND reversible simultaneously."
+#endif
+
+
 /* 
  *  Open the input file. '-' represent standard input.
  */
@@ -69,7 +74,7 @@ FILE *openinputfile(const char* filename) {
   f = fopen(filename,"r");
   if (f==NULL) {
     fprintf(stderr, "c ERROR: unable to open input file \"%s\"",filename);
-    exit(-1);
+    exit(EXIT_FAILURE);
     }
   return f;
 }
@@ -84,7 +89,7 @@ FILE *openoutputfile(const char* filename) {
   f = fopen(filename,"w");
   if (f==NULL) {
     fprintf(stderr, "c ERROR: unable to open output file \"%s\"",filename);
-    exit(-1);
+    exit(EXIT_FAILURE);
     }
   return f;
 }
@@ -130,7 +135,7 @@ int main(int argc, char *argv[])
     switch (option_code) {
     case 'h':
       fprintf(stderr,USAGEMESSAGE,argv[0]);
-      exit(0);
+      exit(EXIT_SUCCESS);
       break;
     case 'Z':
       persistent_pebbling=1;
@@ -142,26 +147,26 @@ int main(int argc, char *argv[])
       pebbling_bound=atoi(optarg);
       if (pebbling_bound>0) break;
       fprintf(stderr,USAGEMESSAGE,argv[0]);
-      exit(-1);
+      exit(EXIT_FAILURE);
       break;
     /* Input */
     case 'p':
       pyramid_height=atoi(optarg);
       if (pyramid_height>0) {input_directives++; break;}
       fprintf(stderr,USAGEMESSAGE,argv[0]);
-      exit(-1);
+      exit(EXIT_FAILURE);
       break;
     case '2':
       tree_height=atoi(optarg);
       if (tree_height>0) {input_directives++; break;}
       fprintf(stderr,USAGEMESSAGE,argv[0]);
-      exit(-1);
+      exit(EXIT_FAILURE);
       break;
     case 'c':
       chain_length=atoi(optarg);
       if (chain_length>0) {input_directives++; break;}
       fprintf(stderr,USAGEMESSAGE,argv[0]);
-      exit(-1);
+      exit(EXIT_FAILURE);
       break;
     case 'i':
       input_file=openinputfile(optarg);
@@ -171,7 +176,7 @@ int main(int argc, char *argv[])
       input_file_aux=openinputfile(optarg);
       if (input_file!=stdin || input_file_aux!=stdin) break;
       fprintf(stderr,USAGEMESSAGE,argv[0]);
-      exit(-1);
+      exit(EXIT_FAILURE);
       break;
       /* Output format */
     case 'g':
@@ -180,20 +185,20 @@ int main(int argc, char *argv[])
     case '?':
     default:
       fprintf(stderr,USAGEMESSAGE,argv[0]);
-      exit(-1);
+      exit(EXIT_FAILURE);
     }
   }
 
   /* Test for valid command line */
   if (pebbling_bound==0) {
       fprintf(stderr,USAGEMESSAGE,argv[0]);
-      exit(-1);
+      exit(EXIT_FAILURE);
   }
 
   /* Only one input */
   if (input_directives > 1) {
     fprintf(stderr,USAGEMESSAGE,argv[0]);
-    exit(-1);
+    exit(EXIT_FAILURE);
   } 
   if (input_directives == 0) input_file = stdin;
 
@@ -256,7 +261,7 @@ int main(int argc, char *argv[])
   if (solution) {
 
     printf("c %s has a %s of cost %u and length %u.\n",
-           graph_name,pebbling_type(),solution->cost,solution->length);
+           graph_name,pebbling_type(),solution->cost,(unsigned int)solution->length);
     printf("s SATISFIABLE\n");
     fprint_text_Pebbling(stdout,C,solution);
 
@@ -269,21 +274,17 @@ int main(int argc, char *argv[])
     printf("s UNSATISFIABLE\n");
   }
 
-  /* Clean up and return the appropriate exit code
+  /* Clean up and exit */
 
-     SATISFIABLE is 20
-     UNSATISFIABLE is 10
-     
-   */
-  int exit_code=0;
+  int exit_code=EXIT_SUCCESS;
   
   dispose_DAG(C);
 
   if (solution) {
     dispose_Pebbling(solution);
-    exit_code=20;
+    exit_code=EXIT_UNSATISFIABLE;
   } else {
-    exit_code=10;
+    exit_code=EXIT_SATISFIABLE;
   }
 
   exit(exit_code);
